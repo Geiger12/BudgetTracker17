@@ -42,9 +42,24 @@ Green, orange and red keep their meaning (paid, due soon, overdue) whichever col
 ## Put it online with GitHub Pages (free)
 
 1. On github.com, create a new repository (for example `budget-tracker`). Make it **Public**.
-2. Upload these files to it: `index.html`, `sw.js`, `manifest.webmanifest`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`.
+2. Upload everything in this package: the six files (`index.html`, `sw.js`, `manifest.webmanifest`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`) and the `about` folder. Drag the folder in too, so it keeps its pictures.
 3. Open **Settings → Pages**. Under **Build and deployment**, set **Source** to **Deploy from a branch**, choose branch **main** and folder **/ (root)**, then **Save**.
 4. After a minute or two the page shows your address, `https://YOUR-USERNAME.github.io/budget-tracker/`.
+
+## The About page
+
+`about/` is a one-page site that explains the app and points people to it. It lives at `https://YOUR-USERNAME.github.io/YOUR-REPO/about/`. Share that link when you want to explain the app. Its buttons open the app itself.
+
+It is plain HTML with no scripts, trackers or outside fonts. `about/preview.png` is the card that shows when the link is pasted into a message or post.
+
+**Set your web address (needed once).** The page tells social sites where it lives, using the address `https://geiger12.github.io/BudgetTracker17/about/`. Replace it with your own in four lines near the top of `about/index.html`:
+
+1. On GitHub, open `about/index.html` and click the pencil (Edit).
+2. Press Ctrl+H (Cmd+Option+F on a Mac) to find and replace.
+3. Find `geiger12.github.io/BudgetTracker17` and replace it with `YOUR-USERNAME.github.io/YOUR-REPO`, then replace all.
+4. Commit the change.
+
+Social sites keep the first preview they see, so test before you post: Facebook's Sharing Debugger, LinkedIn's Post Inspector, or paste the link into a draft.
 
 ## Install it on an iPhone
 
