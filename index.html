@@ -788,6 +788,7 @@ section.group, #schedule:not(:empty), #planned:not(:empty) { margin-top:var(--s4
     share: "M12 3v12M7 8l5-5 5 5M5 14v5h14v-5", download: "M12 3v12M7 10l5 5 5-5M5 19h14", upload: "M12 15V3M7 8l5-5 5 5M5 19h14",
     inbox: "M4 13l2-8h12l2 8M4 13v6h16v-6M4 13h5l1 2h4l1-2h5", folder: "M3 7h6l2 2h10v10H3z", check: "M5 13l4 4L19 7",
     circle: "M12 7a5 5 0 100 10 5 5 0 000-10z",
+    pdf: "M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6",
     palette: "M12 3a9 9 0 100 18c1.2 0 2-.8 2-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 004-4c0-4.4-4-8-9-8zM7.5 11a1 1 0 100-2 1 1 0 000 2zM11 7.5a1 1 0 100-2 1 1 0 000 2zM15.5 8.5a1 1 0 100-2 1 1 0 000 2z",
     home: "M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10", bills: "M7 3h10v18l-2.5-1.5L12 21l-2.5-1.5L7 21V3zM10 8h4M10 12h4", wallet: "M3 7h16a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7zM3 7l12-3v3M16 14h3", chart: "M5 20V10M12 20V4M19 20v-7", star: "M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"
   };
@@ -847,6 +848,7 @@ section.group, #schedule:not(:empty), #planned:not(:empty) { margin-top:var(--s4
         item("plus", "Add item", () => openSheet("add"), { id: "menuAdd" }),
         item("edit", state.manage ? "Done editing" : "Edit items", () => { state.manage = !state.manage; if (state.manage && (state.tab === "overview" || state.tab === "insights")) { state.tab = "bills"; saveUI(); } setDrawer(false); render(); }, { id: "menuEdit" }),
         item("share", "Share this budget", () => openSheet("share"), { id: "menuShare" }),
+        item("pdf", "Export PDF report", exportPdf, { id: "menuPdf" }),
         item("inbox", "Import a budget", () => openSheet("import"), { id: "menuImport" }),
         h("h2", {}, "Backup"),
         item("download", "Save a backup file", () => { setDrawer(false); backup(); }, { id: "menuBackup" }),
@@ -956,6 +958,352 @@ section.group, #schedule:not(:empty), #planned:not(:empty) { margin-top:var(--s4
   let fitTimer = null;
   const refit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitOverview, 80); };
 
+/* ---------- PDF report: every tab, built by hand so it works offline and from the Home Screen icon ---------- */
+  const HELV_W = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584], HELV_B = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];
+  const INKC = "#1F2933";
+  const WINX = { "\u2018": 0x91, "\u2019": 0x92, "\u201c": 0x93, "\u201d": 0x94, "\u2022": 0x95, "\u2013": 0x96, "\u2014": 0x97, "\u2026": 0x85, "\u203a": 0x9b, "\u2212": 0x2d, "\u00a0": 0x20, "\u20ac": 0x80 };
+  function winBytes(str) {                                        // text to the single-byte encoding the PDF fonts use
+    const out = [];
+    for (const ch of String(str)) {
+      const c = ch.codePointAt(0);
+      if (WINX[ch] != null) out.push(WINX[ch]); else if (c >= 32 && c < 127) out.push(c); else if (c >= 0xa0 && c <= 0xff) out.push(c); else out.push(63);
+    }
+    return out;
+  }
+  function advW(code, bold) {
+    if (code >= 32 && code <= 126) return (bold ? HELV_B : HELV_W)[code - 32];
+    if (code === 0x91 || code === 0x92) return bold ? 278 : 222;
+    if (code === 0x93 || code === 0x94) return bold ? 500 : 333;
+    if (code === 0x95) return 350;
+    if (code === 0x96) return 556;
+    if (code === 0x97 || code === 0x85) return 1000;
+    if (code === 0x9b) return 333;
+    if (code === 0xb7) return 278;
+    if (code >= 0xc0 && code <= 0xde) return 700;
+    return 556;
+  }
+  const textW = (str, size, bold) => winBytes(str).reduce((a, c) => a + advW(c, bold), 0) * size / 1000;
+  function fitText(str, w, size, bold) {
+    if (textW(str, size, bold) <= w) return str;
+    let t = String(str); while (t.length > 1 && textW(t + "...", size, bold) > w) t = t.slice(0, -1);
+    return t.replace(/\s+$/, "") + "...";
+  }
+  function wrapText(str, w, size, bold) {
+    const out = []; let line = "";
+    for (const word of String(str).split(/\s+/)) {
+      const tryLine = line ? line + " " + word : word;
+      if (line && textW(tryLine, size, bold) > w) { out.push(line); line = word; } else line = tryLine;
+    }
+    if (line) out.push(line);
+    return out.length ? out : [""];
+  }
+
+  function pdfDoc() {
+    const W = 612, H = 792, pages = []; let ops = null;
+    const n2 = (v) => String(Math.round(v * 100) / 100);
+    const colr = (hex) => rgbOf(hex).map((v) => n2(v / 255)).join(" ");
+    const Y = (y) => n2(H - y);
+    const P = (x, y) => n2(x) + " " + Y(y);
+    const paint = (o) => (o.fill && o.stroke ? "B" : o.fill ? "f" : "S");
+    const style = (o) => (o.fill ? colr(o.fill) + " rg " : "") + (o.stroke ? colr(o.stroke) + " RG " + n2(o.lw || 1) + " w " : "");
+    return {
+      newPage() { ops = []; pages.push(ops); },
+      count() { return pages.length; },
+      onPage(i, fn) { const keep = ops; ops = pages[i]; fn(); ops = keep; },
+      rect(x, y, w, h, o) {
+        const r = Math.min(o.r || 0, w / 2, h / 2);
+        if (r <= 0) { ops.push(style(o) + n2(x) + " " + Y(y + h) + " " + n2(w) + " " + n2(h) + " re " + paint(o)); return; }
+        const k = r * 0.5523, xr = x + w, yb = y + h;
+        ops.push(style(o) + P(x + r, y) + " m " + P(xr - r, y) + " l " + P(xr - r + k, y) + " " + P(xr, y + r - k) + " " + P(xr, y + r) + " c " + P(xr, yb - r) + " l " + P(xr, yb - r + k) + " " + P(xr - r + k, yb) + " " + P(xr - r, yb) + " c " + P(x + r, yb) + " l " + P(x + r - k, yb) + " " + P(x, yb - r + k) + " " + P(x, yb - r) + " c " + P(x, y + r) + " l " + P(x, y + r - k) + " " + P(x + r - k, y) + " " + P(x + r, y) + " c h " + paint(o));
+      },
+      circle(cx, cy, r, o) {
+        const k = r * 0.5523;
+        ops.push(style(o) + P(cx + r, cy) + " m " + P(cx + r, cy + k) + " " + P(cx + k, cy + r) + " " + P(cx, cy + r) + " c " + P(cx - k, cy + r) + " " + P(cx - r, cy + k) + " " + P(cx - r, cy) + " c " + P(cx - r, cy - k) + " " + P(cx - k, cy - r) + " " + P(cx, cy - r) + " c " + P(cx + k, cy - r) + " " + P(cx + r, cy - k) + " " + P(cx + r, cy) + " c h " + paint(o));
+      },
+      line(x1, y1, x2, y2, color, lw) { ops.push(colr(color) + " RG " + n2(lw || 1) + " w " + P(x1, y1) + " m " + P(x2, y2) + " l S"); },
+      poly(pts, color, lw) { ops.push(colr(color) + " RG " + n2(lw || 1) + " w 1 J 1 j " + pts.map((p, i) => P(p[0], p[1]) + (i ? " l" : " m")).join(" ") + " S 0 J 0 j"); },
+      arc(cx, cy, r, a0, a1, color, lw) {                       // angles run clockwise from the top
+        const segs = Math.max(1, Math.ceil(Math.abs(a1 - a0) / (Math.PI / 2))), step = (a1 - a0) / segs;
+        const pt = (a) => [cx + r * Math.sin(a), cy - r * Math.cos(a)];
+        let sOut = colr(color) + " RG " + n2(lw) + " w " + P(...pt(a0)) + " m ";
+        for (let i = 0; i < segs; i++) {
+          const a = a0 + i * step, b = a + step, hh = 4 / 3 * Math.tan((b - a) / 4) * r, p0 = pt(a), p3 = pt(b);
+          sOut += P(p0[0] + hh * Math.cos(a), p0[1] + hh * Math.sin(a)) + " " + P(p3[0] - hh * Math.cos(b), p3[1] - hh * Math.sin(b)) + " " + P(p3[0], p3[1]) + " c ";
+        }
+        ops.push(sOut + "S");
+      },
+      text(str, x, y, o) {
+        const size = o.size || 10, bold = !!o.bold, w = textW(str, size, bold);
+        const px = o.align === "r" ? x - w : o.align === "c" ? x - w / 2 : x;
+        const hex = winBytes(str).map((c) => c.toString(16).padStart(2, "0")).join("");
+        ops.push("BT " + colr(o.color || INKC) + " rg /" + (bold ? "F2" : "F1") + " " + n2(size) + " Tf " + n2(px) + " " + Y(y) + " Td <" + hex + "> Tj ET");
+        return w;
+      },
+      build(title) {
+        const enc = new TextEncoder(), parts = [], offs = []; let off = 0;
+        const put = (txt) => { const b = enc.encode(txt); parts.push(b); off += b.length; };
+        const obj = (n, body) => { offs[n] = off; put(n + " 0 obj\n" + body + "\nendobj\n"); };
+        const np = pages.length, first = 6, total = 5 + np * 2;
+        put("%PDF-1.4\n");
+        obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+        obj(2, "<< /Type /Pages /Kids [" + pages.map((_, i) => (first + i * 2) + " 0 R").join(" ") + "] /Count " + np + " >>");
+        obj(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        obj(4, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+        const now = new Date(), stamp = "D:" + now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+        let tHex = "FEFF"; for (let i = 0; i < title.length; i++) tHex += title.charCodeAt(i).toString(16).padStart(4, "0");
+        obj(5, "<< /Title <" + tHex + "> /Producer (Budget Tracker) /Creator (Budget Tracker) /CreationDate (" + stamp + ") >>");
+        pages.forEach((pg, i) => {
+          const n = first + i * 2, body = pg.join("\n");
+          obj(n, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + W + " " + H + "] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents " + (n + 1) + " 0 R >>");
+          obj(n + 1, "<< /Length " + enc.encode(body).length + " >>\nstream\n" + body + "\nendstream");
+        });
+        const xref = off;
+        let x = "xref\n0 " + (total + 1) + "\n0000000000 65535 f \n";
+        for (let i = 1; i <= total; i++) x += String(offs[i]).padStart(10, "0") + " 00000 n \n";
+        put(x + "trailer\n<< /Size " + (total + 1) + " /Root 1 0 R /Info 5 0 R >>\nstartxref\n" + xref + "\n%%EOF\n");
+        return new Blob(parts, { type: "application/pdf" });
+      }
+    };
+  }
+
+  function buildReportPdf() {
+    const c = monthContext(state.y, state.m), col = getColors(), t = todayISO();
+    const C = { ink: INKC, muted: "#5B6770", border: "#E1E6EA", panel: "#F5F7F8", track: "#E3E8EC", ok: "#19A35A", warn: "#F59E0B", bad: "#E5372F", okT: "#13804A", warnT: "#92400E", badT: "#C62828", okS: "#E1F3E8", warnS: "#FEF3C7", badS: "#FDE8E6", white: "#FFFFFF", brand: col.brand, primary: col.primary, accent: col.accent, soft: mixHex(col.brand, "#ffffff", 0.62) };
+    const onBrand = fgFor(C.brand), onPrimary = fgFor(C.primary);
+    const slice = { "var(--green)": C.ok, "var(--blue)": C.brand, "var(--amber)": C.warn, "var(--red)": C.bad, "var(--blue-soft)": C.soft, "var(--navy)": C.primary };
+    const doc = pdfDoc(), M = 40, CW = 532, TOP = 84, BOT = 740;
+    const monthName = MONTHS[state.m] + " " + state.y, todayStr = niceDate(t) + ", " + parseISO(t).y;
+    let y = TOP, cur = "";
+    const header = (title, cont) => {
+      doc.newPage();
+      doc.rect(0, 0, 612, 58, { fill: C.brand });
+      doc.text("Budget Tracker", M, 36, { size: 17, bold: true, color: onBrand });
+      doc.text(fitText(curName(), 260, 11, true), M + CW, 29, { size: 11, bold: true, color: onBrand, align: "r" });
+      doc.text(monthName, M + CW, 44, { size: 10, color: onBrand, align: "r" });
+      doc.text(title + (cont ? " (continued)" : ""), M, TOP + 6, { size: cont ? 15 : 24, bold: true });
+      y = TOP + (cont ? 28 : 24);
+    };
+    const ensure = (h) => { if (y + h > BOT) header(cur, true); };
+    const sub = (str) => { doc.text(str, M, y, { size: 10.5, color: C.muted }); y += 22; };
+    const bar = (label, right) => {
+      doc.rect(M, y, CW, 22, { fill: C.primary, r: 6 });
+      doc.text(label, M + CW / 2, y + 15, { size: 11, bold: true, color: onPrimary, align: "c" });
+      if (right) doc.text(right, M + CW - 10, y + 15, { size: 9, color: onPrimary, align: "r" });
+      y += 28;
+    };
+    const tagFor = (o) => {
+      const p = state.pay.get(o.key), inc = o.item.type === "income", d = daysUntil(o.due);
+      if (p) return [inc ? "Received" : "Paid", C.okS, C.okT];
+      if (d < 0) return [inc ? "Not received yet" : "Overdue", C.badS, C.badT];
+      if (d === 0) return ["Due today", C.warnS, C.warnT];
+      if (d <= 3) return ["Due in " + d + (d === 1 ? " day" : " days"), C.warnS, C.warnT];
+      return null;
+    };
+    const pill = (label, bg, fg, xRight, ry) => { const w = textW(label, 8.5, true) + 14; doc.rect(xRight - w, ry, w, 15, { fill: bg, r: 7.5 }); doc.text(label, xRight - w / 2, ry + 10.8, { size: 8.5, bold: true, color: fg, align: "c" }); };
+
+    /* ----- 1. Overview ----- */
+    cur = "Overview"; header("Overview", false);
+    const lvl = c.level, lvlName = { green: "Green", amber: "Amber", red: "Red" }[lvl], lvlCol = { green: C.ok, amber: C.warn, red: C.bad }[lvl];
+    doc.text(lvlName, M + CW, TOP + 4, { size: 13, bold: true, align: "r" });
+    const lw = textW(lvlName, 13, true);
+    doc.circle(M + CW - lw - 14, TOP, 6, { fill: lvlCol, stroke: C.ink, lw: 1 });
+    doc.text("Health", M + CW - lw - 26, TOP + 4, { size: 10, color: C.muted, align: "r" });
+    sub(monthName + "   as of " + todayStr);
+    const gw = (CW - 28) / 3, gh = 232;
+    y += 4;
+    gaugeSets(c).forEach((g, i) => {
+      const gx = M + i * (gw + 14), cx = gx + gw / 2, cy = y + 94;
+      doc.rect(gx, y, gw, gh, { fill: C.panel, stroke: C.border, lw: 0.8, r: 10 });
+      const chip = textW(g.title, 11, true) + 28;
+      doc.rect(cx - chip / 2, y + 12, chip, 20, { fill: C.primary, r: 5 });
+      doc.text(g.title, cx, y + 26, { size: 11, bold: true, color: onPrimary, align: "c" });
+      const live = g.slices.filter((sl) => sl[1] > 0), total = live.reduce((a, sl) => a + sl[1], 0);
+      doc.arc(cx, cy, 44, 0, Math.PI * 2, C.track, 16);
+      let a0 = 0;
+      for (const sl of live) { const span = sl[1] / total * Math.PI * 2; doc.arc(cx, cy, 44, a0, a0 + Math.max(0.01, span - (live.length > 1 ? 0.03 : 0)), slice[sl[2]], 16); a0 += span; }
+      doc.text(g.big, cx, cy + 7, { size: 21, bold: true, align: "c" });
+      doc.text(g.small, cx, cy + 21, { size: 8.5, color: C.muted, align: "c" });
+      let ly = y + 166;
+      if (!live.length) doc.text("Nothing yet", cx, ly, { size: 9.5, color: C.muted, align: "c" });
+      live.forEach((sl) => {
+        doc.circle(gx + 18, ly - 3, 3.5, { fill: slice[sl[2]] });
+        doc.text(fitText(sl[0] + " " + (g.count ? String(sl[1]) : fmt(sl[1])), gw - 42, 9.5, false), gx + 28, ly, { size: 9.5 });
+        ly += 15;
+      });
+    });
+    y += gh + 18;
+    const lines = summaryLines(c);
+    if (lines.length) {
+      const wrapped = lines.map((l) => wrapText(l, CW - 50, 11, false)), lh = 15;
+      const hh = 44 + wrapped.reduce((a, w) => a + w.length * lh + 4, 0);
+      ensure(hh);
+      doc.rect(M, y, CW, hh, { fill: C.panel, stroke: C.border, lw: 0.8, r: 10 });
+      doc.text("Month summary", M + 16, y + 25, { size: 12.5, bold: true });
+      let ty = y + 47;
+      wrapped.forEach((w) => { w.forEach((ln, k) => { if (k === 0) doc.text("\u203a", M + 16, ty, { size: 11, color: C.muted }); doc.text(ln, M + 30, ty, { size: 11 }); ty += lh; }); ty += 4; });
+      y += hh + 14;
+    }
+    if (state.budgets[state.activeId].sample) {
+      ensure(40);
+      doc.rect(M, y, CW, 34, { fill: C.panel, stroke: C.border, lw: 0.8, r: 8 });
+      doc.rect(M, y, 4, 34, { fill: C.accent });
+      doc.text("This is an example budget. The names and amounts are made up.", M + 16, y + 21, { size: 10.5, bold: true });
+      y += 46;
+    }
+
+    /* ----- 2. Bills ----- */
+    cur = "Bills"; header("Bills", false);
+    sub(c.bills.length ? c.billsPaidCount + " of " + c.bills.length + " bills paid. " + fmt(c.toPay) + " still to pay." : "No bills this month.");
+    const billRow = (o) => {
+      ensure(34);
+      const it = o.item, p = state.pay.get(o.key), paid = !!p, inc = it.type === "income", ry = y;
+      doc.rect(M + 8, ry + 8, 14, 14, paid ? { fill: C.ok, stroke: C.ok, lw: 1, r: 3 } : { stroke: C.muted, lw: 1.2, r: 3 });
+      if (paid) doc.poly([[M + 11, ry + 15.5], [M + 14.5, ry + 19], [M + 19.5, ry + 11.5]], C.white, 1.8);
+      const nx = M + 32, nw = doc.text(fitText(it.name, 270, 11, true), nx, ry + 14, { size: 11, bold: true, color: paid ? C.muted : C.ink });
+      if (paid) doc.line(nx, ry + 10.6, nx + nw, ry + 10.6, C.muted, 0.8);
+      const meta = niceDate(o.due) + (it.account ? " \u00b7 " + it.account : "") + (paid && p.on ? " \u00b7 " + (inc ? "Received " : "Paid ") + niceDate(p.on) : "");
+      doc.text(fitText(meta, 290, 8.5, false), nx, ry + 25, { size: 8.5, color: C.muted });
+      const tag = tagFor(o);
+      if (tag) pill(tag[0], tag[1], tag[2], M + CW - 96, ry + 7.5);
+      const shown = paid && p.amt != null ? p.amt : it.amount;
+      doc.text((inc ? "+" : "") + fmt(shown), M + CW - 10, ry + 18, { size: 11, bold: true, color: inc ? C.okT : C.ink, align: "r" });
+      doc.line(M, ry + 29, M + CW, ry + 29, C.border, 0.6);
+      y += 30;
+    };
+    const group = (title, list, right) => { ensure(28 + 34); bar(title, right); list.forEach(billRow); y += 6; };
+    if (c.incomes.length) group("Money in", c.incomes);
+    if (c.bills.length) group("Bills", c.bills, c.billsPaidCount + " of " + c.bills.length + " paid");
+    if (!c.incomes.length && !c.bills.length) { doc.text("No bills or income this month.", M, y, { size: 11, color: C.muted }); y += 24; }
+    const weeks = scheduleWeeks(c), bw = (CW - 16) / 3;
+    const stat = { paid: C.ok, inc: C.ok, overdue: C.bad, soon: C.warn, "": C.brand };
+    ensure(28 + 70); bar("Schedule by week");
+    for (let i = 0; i < weeks.length; i += 3) {
+      const trio = weeks.slice(i, i + 3), rowH = Math.max(...trio.map((w) => 30 + Math.max(1, w.items.length) * 12.5 + 6));
+      ensure(rowH + 8);
+      trio.forEach((w, k) => {
+        const bx = M + k * (bw + 8);
+        doc.rect(bx, y, bw, rowH, { fill: C.white, stroke: w.now ? C.primary : C.border, lw: w.now ? 1.6 : 0.8, r: 8 });
+        doc.text(w.label, bx + 9, y + 17, { size: 9.5, bold: true, color: C.muted });
+        if (!w.items.length) doc.text("Nothing due", bx + 9, y + 35, { size: 8.5, color: C.muted });
+        w.items.forEach((it, j) => {
+          const iy = y + 35 + j * 12.5;
+          doc.rect(bx + 7, iy - 8, 3, 10, { fill: stat[it.cls] });
+          doc.text(String(it.day), bx + 15, iy, { size: 8.5, bold: true, color: it.paid ? C.muted : C.ink });
+          const nw = doc.text(fitText(it.name, bw - 80, 8.5, false), bx + 29, iy, { size: 8.5, color: it.paid ? C.muted : C.ink });
+          if (it.paid) doc.line(bx + 29, iy - 2.8, bx + 29 + nw, iy - 2.8, C.muted, 0.7);
+          doc.text((it.income ? "+" : "") + fmt(it.amount), bx + bw - 8, iy, { size: 8.5, color: it.paid ? C.muted : C.ink, align: "r" });
+        });
+      });
+      y += rowH + 8;
+    }
+
+    /* ----- 3. Spending ----- */
+    cur = "Spending"; header("Spending", false);
+    sub("Everyday budgets and what is left of each");
+    if (!c.vars.length) { doc.text("No everyday spending items yet.", M, y, { size: 11, color: C.muted }); y += 24; }
+    else {
+      const over = c.varSpent > c.varBudget, frac = c.varBudget ? Math.min(1, c.varSpent / c.varBudget) : 0;
+      doc.rect(M, y, CW, 92, { fill: C.panel, stroke: C.border, lw: 0.8, r: 10 });
+      doc.text("Spent this month", M + 16, y + 22, { size: 9.5, color: C.muted });
+      const w1 = doc.text(fmt(c.varSpent), M + 16, y + 50, { size: 24, bold: true });
+      doc.text(" of " + fmt(c.varBudget), M + 16 + w1, y + 50, { size: 12, color: C.muted });
+      doc.rect(M + 16, y + 60, CW - 32, 10, { fill: C.track, r: 5 });
+      if (frac > 0) doc.rect(M + 16, y + 60, Math.max(10, (CW - 32) * frac), 10, { fill: over ? C.bad : C.primary, r: 5 });
+      doc.text(over ? fmt(c.varSpent - c.varBudget) + " over budget" : fmt(c.varBudget - c.varSpent) + " left", M + 16, y + 85, { size: 9.5, color: C.muted });
+      y += 108;
+      ensure(28 + 56); bar("Everyday spending", c.vars.length + (c.vars.length === 1 ? " item" : " items"));
+      for (const o of c.vars) {
+        ensure(60);
+        const it = o.item, p = state.pay.get(o.key), spent = p ? p.amt || 0 : 0, ov = spent > it.amount, ry = y;
+        doc.text(fitText(it.name, 260, 11.5, true), M + 12, ry + 16, { size: 11.5, bold: true });
+        const meta = "Budget " + fmt(it.amount) + (ov ? "" : " \u00b7 " + fmt(it.amount - spent) + " left");
+        const mw = doc.text(meta, M + 12, ry + 29, { size: 9, color: C.muted });
+        if (ov) pill(fmt(spent - it.amount) + " over", C.badS, C.badT, M + 12 + mw + 8 + textW(fmt(spent - it.amount) + " over", 8.5, true) + 14, ry + 19);
+        doc.text("Spent " + fmt(spent), M + CW - 10, ry + 20, { size: 11.5, bold: true, align: "r" });
+        doc.rect(M + 12, ry + 38, CW - 24, 8, { fill: C.track, r: 4 });
+        const f = it.amount ? Math.min(1, spent / it.amount) : 0;
+        if (f > 0) doc.rect(M + 12, ry + 38, Math.max(8, (CW - 24) * f), 8, { fill: ov ? C.bad : C.primary, r: 4 });
+        doc.line(M, ry + 56, M + CW, ry + 56, C.border, 0.6);
+        y += 58;
+      }
+    }
+
+    /* ----- 4. Insights ----- */
+    cur = "Insights"; header("Insights", false);
+    sub("Expected income, planned spending and where the money goes");
+    const wr = whereRows(c), g3 = (CW - 24) / 3;
+    [["Expected income", fmt(c.expIn), C.ink], ["Planned spending", fmt(wr.plannedOut), C.ink], ["Expected net", fmt(wr.net), wr.net >= 0 ? C.okT : C.badT]].forEach(([label, val, colour], i) => {
+      const gx = M + i * (g3 + 12);
+      doc.rect(gx, y, g3, 64, { fill: C.panel, stroke: C.border, lw: 0.8, r: 10 });
+      doc.text(label, gx + 12, y + 21, { size: 9, color: C.muted });
+      doc.text(val, gx + 12, y + 48, { size: 21, bold: true, color: colour });
+    });
+    y += 80;
+    if (wr.rows.length) {
+      ensure(28 + 26 * Math.min(3, wr.rows.length)); bar("Where the money goes");
+      const scale = Math.max(1, ...wr.rows.map((r) => Math.max(r.planned, r.done))), bx0 = M + 170, bwid = CW - 170 - 86;
+      for (const r of wr.rows) {
+        ensure(28);
+        doc.text(fitText(r.name, 150, 10, true), M + 12, y + 14, { size: 10, bold: true });
+        doc.rect(bx0, y + 6, bwid, 10, { fill: C.track, r: 5 });
+        if (r.planned > 0) doc.rect(bx0, y + 6, Math.max(10, bwid * r.planned / scale), 10, { fill: C.soft, r: 5 });
+        if (r.done > 0) doc.rect(bx0, y + 6, Math.max(10, bwid * r.done / scale), 10, { fill: r.done > r.planned ? C.bad : C.primary, r: 5 });
+        doc.text(fmt(r.planned), M + CW - 10, y + 14, { size: 10, color: C.muted, align: "r" });
+        y += 26;
+      }
+      ensure(24);
+      doc.circle(M + 16, y + 9, 4, { fill: C.primary }); doc.text("Paid or spent so far", M + 26, y + 12, { size: 9, color: C.muted });
+      doc.circle(M + 150, y + 9, 4, { fill: C.soft }); doc.text("Planned", M + 160, y + 12, { size: 9, color: C.muted });
+      y += 34;
+    }
+    ensure(28 + 224); bar("Planned vs actual spending");
+    const pts = plannedPoints(), chH = 214, L = 58, R = 18, T = 40, B = 30;
+    doc.rect(M, y, CW, chH, { fill: C.white, stroke: C.border, lw: 0.8, r: 10 });
+    const px0 = M + L, px1 = M + CW - R, py0 = y + T, py1 = y + chH - B;
+    const maxV = Math.max(1, ...pts.map((q) => Math.max(q.planned, q.actual || 0)));
+    const stepV = maxV > 8000 ? 2000 : maxV > 4000 ? 1000 : maxV > 1500 ? 500 : 250, top = Math.ceil(maxV / stepV) * stepV;
+    const gx = (i) => px0 + (px1 - px0) * (i / (pts.length - 1)), gy = (v) => py1 - (py1 - py0) * (v / top);
+    for (let v = 0; v <= top; v += stepV) { doc.line(px0, gy(v), px1, gy(v), C.border, 0.6); doc.text("$" + (v >= 1000 ? (v / 1000) + "k" : String(v)), px0 - 7, gy(v) + 3, { size: 8.5, color: C.muted, align: "r" }); }
+    pts.forEach((q, i) => doc.text(q.label, gx(i), py1 + 16, { size: 8.5, color: C.muted, align: "c" }));
+    const series = (key, colour) => {
+      let run = [];
+      const flush = () => { if (run.length > 1) doc.poly(run, colour, 2.2); run = []; };
+      pts.forEach((q, i) => { if (q[key] == null) { flush(); return; } run.push([gx(i), gy(q[key])]); });
+      flush();
+      pts.forEach((q, i) => { if (q[key] != null) doc.circle(gx(i), gy(q[key]), 3.6, { fill: C.white, stroke: colour, lw: 1.8 }); });
+    };
+    series("planned", C.ink); series("actual", C.primary);
+    doc.circle(px0 + 6, y + 20, 4.5, { fill: C.ink }); doc.text("Planned", px0 + 16, y + 24, { size: 9.5, color: C.muted });
+    doc.circle(px0 + 86, y + 20, 4.5, { fill: C.primary }); doc.text("Actual", px0 + 96, y + 24, { size: 9.5, color: C.muted });
+    y += chH + 14;
+    if (!pts.some((q) => q.actual != null)) doc.text("Mark bills paid and enter spending to see your actual line fill in.", M + CW / 2, y + 4, { size: 9.5, color: C.muted, align: "c" });
+
+    /* ----- footers, now that the page count is known ----- */
+    const total = doc.count();
+    for (let i = 0; i < total; i++) doc.onPage(i, () => {
+      doc.line(M, 752, M + CW, 752, C.border, 0.8);
+      doc.text("Budget Tracker \u00b7 saved on this device", M, 768, { size: 8, color: C.muted });
+      doc.text("Created " + todayStr, 306, 768, { size: 8, color: C.muted, align: "c" });
+      doc.text("Page " + (i + 1) + " of " + total, M + CW, 768, { size: 8, color: C.muted, align: "r" });
+    });
+    return doc.build(curName() + " \u00b7 Budget report \u00b7 " + monthName);
+  }
+
+  async function exportPdf() {
+    if (state.drawer) setDrawer(false);
+    if (!state.items.length) { state.note = "Add an item first, then export."; render(); return; }
+    let blob;
+    try { blob = buildReportPdf(); } catch (e) { state.note = "Couldn\u2019t make the PDF."; render(); return; }
+    const name = "budget-" + slug(curName()) + "-" + state.y + "-" + pad(state.m + 1) + ".pdf";
+    const file = new File([blob], name, { type: "application/pdf" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: curName() + " report" }); return; } catch (e) { if (e && e.name === "AbortError") return; }
+    }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    state.note = "Saved " + name; render();
+  }
+
   /* ---------- render ---------- */
   const $ = (id) => document.getElementById(id);
   const svgEl = (tag, attrs) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v); return e; };
@@ -967,29 +1315,8 @@ section.group, #schedule:not(:empty), #planned:not(:empty) { margin-top:var(--s4
     if (state.mode === "local") banner.append(h("div", { class: "banner" }, "This browser isn’t letting the page save, so your progress will reset when you close it."));
     const note = state.note; state.note = ""; showToast(note);
 
-    const incomes = [], bills = [], vars = [];
-    for (const it of state.items.slice().sort((a, b) => (a.order || 0) - (b.order || 0))) {
-      for (const o of occurrences(it, y, m)) (it.type === "income" ? incomes : it.type === "variable" ? vars : bills).push(o);
-    }
-    const byDue = (a, b) => (a.due || "").localeCompare(b.due || "") || (a.item.order || 0) - (b.item.order || 0);
-    incomes.sort(byDue); bills.sort(byDue);
-
-    const paidAmt = (o) => (state.pay.get(o.key) || {}).amt;
-    const isPaid = (o) => state.pay.has(o.key);
-    const t = todayISO();
-    const expIn = incomes.reduce((s, o) => s + o.item.amount, 0);
-    const gotIn = incomes.reduce((s, o) => s + (isPaid(o) ? paidAmt(o) ?? o.item.amount : 0), 0);
-    const billsPaidCount = bills.filter(isPaid).length;
-    const toPay = bills.filter((o) => !isPaid(o)).reduce((s, o) => s + o.item.amount, 0);
-    const overdueList = bills.filter((o) => !isPaid(o) && o.due < t);
-    const soon = bills.filter((o) => !isPaid(o) && o.due >= t && daysUntil(o.due) <= 3);
-    const upcoming = bills.filter((o) => !isPaid(o) && o.due >= t && daysUntil(o.due) > 3);
-    const varSpent = vars.reduce((s, o) => s + (paidAmt(o) || 0), 0);
-    const varBudget = vars.reduce((s, o) => s + o.item.amount, 0);
-    const level = overdueList.length ? "red" : (soon.length || varSpent > varBudget) ? "amber" : "green";
-
-    const ctx = { incomes, bills, vars, isPaid, paidAmt, t, expIn, gotIn, billsPaidCount, toPay, overdueList, soon, upcoming, varSpent, varBudget };
-    state.overdueCount = overdueList.length;
+    const ctx = monthContext(y, m), level = ctx.level;
+    state.overdueCount = ctx.overdueList.length;
     renderStrip(level);
     renderBudgets();
     renderShareImport();
@@ -1038,10 +1365,30 @@ section.group, #schedule:not(:empty), #planned:not(:empty) { margin-top:var(--s4
       h("div", { class: "legend" }, live.length ? live.map(([n, v, col]) => h("span", {}, h("i", { style: "background:" + col }), n + " " + f(v))) : h("span", {}, "Nothing yet")));
   }
 
-  function renderOverview(c) {
-    const sum = $("summary"), don = $("donuts"), sch = $("schedule"), pl = $("planned");
-    [sum, don, sch, pl].forEach((e) => e.replaceChildren());
-    if (!state.items.length) return;
+  /* ---------- the numbers behind each tab, shared by the screen and the PDF ---------- */
+  function monthContext(y, m) {
+    const incomes = [], bills = [], vars = [];
+    for (const it of state.items.slice().sort((a, b) => (a.order || 0) - (b.order || 0))) {
+      for (const o of occurrences(it, y, m)) (it.type === "income" ? incomes : it.type === "variable" ? vars : bills).push(o);
+    }
+    const byDue = (a, b) => (a.due || "").localeCompare(b.due || "") || (a.item.order || 0) - (b.item.order || 0);
+    incomes.sort(byDue); bills.sort(byDue);
+    const paidAmt = (o) => (state.pay.get(o.key) || {}).amt;
+    const isPaid = (o) => state.pay.has(o.key);
+    const t = todayISO();
+    const expIn = incomes.reduce((s, o) => s + o.item.amount, 0);
+    const gotIn = incomes.reduce((s, o) => s + (isPaid(o) ? paidAmt(o) ?? o.item.amount : 0), 0);
+    const billsPaidCount = bills.filter(isPaid).length;
+    const toPay = bills.filter((o) => !isPaid(o)).reduce((s, o) => s + o.item.amount, 0);
+    const overdueList = bills.filter((o) => !isPaid(o) && o.due < t);
+    const soon = bills.filter((o) => !isPaid(o) && o.due >= t && daysUntil(o.due) <= 3);
+    const upcoming = bills.filter((o) => !isPaid(o) && o.due >= t && daysUntil(o.due) > 3);
+    const varSpent = vars.reduce((s, o) => s + (paidAmt(o) || 0), 0);
+    const varBudget = vars.reduce((s, o) => s + o.item.amount, 0);
+    const level = overdueList.length ? "red" : (soon.length || varSpent > varBudget) ? "amber" : "green";
+    return { incomes, bills, vars, isPaid, paidAmt, t, expIn, gotIn, billsPaidCount, toPay, overdueList, soon, upcoming, varSpent, varBudget, level };
+  }
+  function summaryLines(c) {
     const lines = [];
     if (c.bills.length) lines.push(c.billsPaidCount + " of " + c.bills.length + " bills paid. " + fmt(c.toPay) + " still to pay.");
     if (c.overdueList.length) { const nm = c.overdueList.map((o) => o.item.name); lines.push(c.overdueList.length + " overdue: " + nm.slice(0, 4).join(", ") + (nm.length > 4 ? " and " + (nm.length - 4) + " more" : "") + "."); }
@@ -1049,39 +1396,69 @@ section.group, #schedule:not(:empty), #planned:not(:empty) { margin-top:var(--s4
     if (next) lines.push("Next up: " + next.item.name + ", " + niceDate(next.due) + " (" + fmt(next.item.amount) + ").");
     if (c.incomes.length) lines.push(fmt(c.gotIn) + " received of " + fmt(c.expIn) + " expected.");
     if (c.vars.length) lines.push("Everyday spending: " + fmt(c.varSpent) + " of " + fmt(c.varBudget) + (c.varBudget ? " (" + Math.round(c.varSpent / c.varBudget * 100) + "%)." : "."));
-    if (lines.length) sum.append(h("h2", {}, "Month summary"), h("ul", {}, lines.map((x) => h("li", {}, x))));
-
-    const cnt = (n) => String(n);
+    return lines;
+  }
+  function gaugeSets(c) {
     const over = c.varSpent > c.varBudget;
-    don.append(
-      donutCard("Bills", [["Paid", c.billsPaidCount, "var(--green)"], ["Upcoming", c.upcoming.length, "var(--blue)"], ["Due soon", c.soon.length, "var(--amber)"], ["Overdue", c.overdueList.length, "var(--red)"]], c.billsPaidCount + "/" + c.bills.length, "paid", cnt),
-      donutCard("Money in", [["Received", c.gotIn, "var(--green)"], ["Expected", Math.max(0, c.expIn - c.gotIn), "var(--blue-soft)"]], c.expIn ? Math.round(c.gotIn / c.expIn * 100) + "%" : "–", "received", fmt),
-      donutCard("Spending", over ? [["Budget used", c.varBudget, "var(--navy)"], ["Over budget", c.varSpent - c.varBudget, "var(--red)"]] : [["Spent", c.varSpent, "var(--navy)"], ["Left", c.varBudget - c.varSpent, "var(--blue-soft)"]], c.varBudget ? Math.round(c.varSpent / c.varBudget * 100) + "%" : "–", "of budget", fmt));
-
-    // schedule: one card per week of the month
+    return [
+      { title: "Bills", slices: [["Paid", c.billsPaidCount, "var(--green)"], ["Upcoming", c.upcoming.length, "var(--blue)"], ["Due soon", c.soon.length, "var(--amber)"], ["Overdue", c.overdueList.length, "var(--red)"]], big: c.billsPaidCount + "/" + c.bills.length, small: "paid", count: true },
+      { title: "Money in", slices: [["Received", c.gotIn, "var(--green)"], ["Expected", Math.max(0, c.expIn - c.gotIn), "var(--blue-soft)"]], big: c.expIn ? Math.round(c.gotIn / c.expIn * 100) + "%" : "–", small: "received", count: false },
+      { title: "Spending", slices: over ? [["Budget used", c.varBudget, "var(--navy)"], ["Over budget", c.varSpent - c.varBudget, "var(--red)"]] : [["Spent", c.varSpent, "var(--navy)"], ["Left", c.varBudget - c.varSpent, "var(--blue-soft)"]], big: c.varBudget ? Math.round(c.varSpent / c.varBudget * 100) + "%" : "–", small: "of budget", count: false }
+    ];
+  }
+  function scheduleWeeks(c) {
     const { y, m } = state, dim = daysIn(y, m), tdy = parseISO(c.t);
     const ranges = [[1, 7], [8, 14], [15, 21], [22, 28]].concat(dim > 28 ? [[29, dim]] : []);
     const dated = c.incomes.concat(c.bills).filter((o) => o.due).sort((a, b) => a.due.localeCompare(b.due));
-    const weeks = ranges.map(([lo, hi]) => {
+    return ranges.map(([lo, hi]) => {
       const here = dated.filter((o) => { const d = parseISO(o.due).d; return d >= lo && d <= hi; });
-      const now = tdy.y === y && tdy.m === m && tdy.d >= lo && tdy.d <= hi;
-      return h("div", { class: "week" + (now ? " now" : "") }, h("h4", {}, MONTHS[m].slice(0, 3) + " " + lo + (hi > lo ? "–" + hi : "")),
-        here.length ? here.map((o) => {
-          const paid = c.isPaid(o), inc = o.item.type === "income", d = daysUntil(o.due);
-          const cls = paid ? "paid" : inc ? "inc" : o.due < c.t ? "overdue" : d <= 3 ? "soon" : "";
-          return h("div", { class: "chip " + cls }, h("b", {}, String(parseISO(o.due).d)), h("span", { class: "n" }, o.item.name), h("span", { class: "a" }, (inc ? "+" : "") + fmt(o.item.amount)));
-        }) : h("div", { class: "none" }, "Nothing due"));
+      return {
+        label: MONTHS[m].slice(0, 3) + " " + lo + (hi > lo ? "–" + hi : ""), now: tdy.y === y && tdy.m === m && tdy.d >= lo && tdy.d <= hi,
+        items: here.map((o) => { const paid = c.isPaid(o), inc = o.item.type === "income", d = daysUntil(o.due); return { day: parseISO(o.due).d, name: o.item.name, amount: o.item.amount, income: inc, paid, cls: paid ? "paid" : inc ? "inc" : o.due < c.t ? "overdue" : d <= 3 ? "soon" : "" }; })
+      };
     });
-    sch.append(h("div", { class: "bar-title" }, "Schedule"), h("div", { class: "weeks" }, weeks));
-
-    // planned vs actual spending, six months ending with the month shown
-    const pts = [];
+  }
+  function plannedPoints() {
+    const { y, m } = state, pts = [];
     for (let k = 5; k >= 0; k--) {
       let mm = m - k, yy = y; while (mm < 0) { mm += 12; yy--; }
       let planned = 0, actual = 0, any = false;
       for (const it of state.items) { if (it.type === "income") continue; for (const o of occurrences(it, yy, mm)) { planned += it.amount; const p = state.pay.get(o.key); if (p) { actual += p.amt ?? it.amount; any = true; } } }
       pts.push({ label: MONTHS[mm].slice(0, 3), planned, actual: any ? actual : null });
     }
+    return pts;
+  }
+  function whereRows(c) {
+    const map = new Map();
+    for (const it of state.items) {
+      if (it.type === "income") continue;
+      for (const o of occurrences(it, state.y, state.m)) {
+        const p = state.pay.get(o.key), r = map.get(it.name) || { name: it.name, planned: 0, done: 0 };
+        r.planned += it.amount; r.done += p ? (p.amt ?? it.amount) : 0; map.set(it.name, r);
+      }
+    }
+    let rows = Array.from(map.values()).sort((a, b) => b.planned - a.planned);
+    const plannedOut = rows.reduce((s, r) => s + r.planned, 0), net = c.expIn - plannedOut;
+    if (rows.length > 8) { const rest = rows.slice(7); rows = rows.slice(0, 7).concat([{ name: "Other (" + rest.length + ")", planned: rest.reduce((s, r) => s + r.planned, 0), done: rest.reduce((s, r) => s + r.done, 0) }]); }
+    return { rows, plannedOut, net };
+  }
+
+  function renderOverview(c) {
+    const sum = $("summary"), don = $("donuts"), sch = $("schedule"), pl = $("planned");
+    [sum, don, sch, pl].forEach((e) => e.replaceChildren());
+    if (!state.items.length) return;
+    const lines = summaryLines(c);
+    if (lines.length) sum.append(h("h2", {}, "Month summary"), h("ul", {}, lines.map((x) => h("li", {}, x))));
+
+    gaugeSets(c).forEach((g) => don.append(donutCard(g.title, g.slices, g.big, g.small, g.count ? (n) => String(n) : fmt)));
+
+    // schedule: one card per week of the month
+    const weeks = scheduleWeeks(c).map((w) => h("div", { class: "week" + (w.now ? " now" : "") }, h("h4", {}, w.label),
+      w.items.length ? w.items.map((i) => h("div", { class: "chip " + i.cls }, h("b", {}, String(i.day)), h("span", { class: "n" }, i.name), h("span", { class: "a" }, (i.income ? "+" : "") + fmt(i.amount)))) : h("div", { class: "none" }, "Nothing due")));
+    sch.append(h("div", { class: "bar-title" }, "Schedule"), h("div", { class: "weeks" }, weeks));
+
+    // planned vs actual spending, six months ending with the month shown
+    const pts = plannedPoints();
     pl.append(h("div", { class: "bar-title" }, "Planned vs actual spending"), h("div", { class: "card chart", style: "border-radius:0 0 14px 14px;border-top:0" }, chartPlanned(pts), pts.some((p) => p.actual != null) ? null : h("div", { class: "sub", style: "text-align:center;margin-top:6px" }, "Mark bills paid and enter spending to see your actual line fill in.")));
   }
 
@@ -1186,20 +1563,10 @@ section.group, #schedule:not(:empty), #planned:not(:empty) { margin-top:var(--s4
   function renderInsights(c) {
     const gl = $("glance"), wh = $("where"); gl.replaceChildren(); wh.replaceChildren();
     if (!state.items.length) return;
-    const map = new Map();
-    for (const it of state.items) {
-      if (it.type === "income") continue;
-      for (const o of occurrences(it, state.y, state.m)) {
-        const p = state.pay.get(o.key), r = map.get(it.name) || { name: it.name, planned: 0, done: 0 };
-        r.planned += it.amount; r.done += p ? (p.amt ?? it.amount) : 0; map.set(it.name, r);
-      }
-    }
-    let rows = Array.from(map.values()).sort((a, b) => b.planned - a.planned);
-    const plannedOut = rows.reduce((s, r) => s + r.planned, 0), net = c.expIn - plannedOut;
+    const { rows, plannedOut, net } = whereRows(c);
     const card = (l, v, cls) => h("div", { class: "card" }, h("div", { class: "l" }, l), h("div", { class: "v " + (cls || "") }, v));
     gl.append(card("Expected income", fmt(c.expIn)), card("Planned spending", fmt(plannedOut)), card("Expected net", fmt(net), net >= 0 ? "pos" : "neg"));
     if (!rows.length) return;
-    if (rows.length > 8) { const rest = rows.slice(7); rows = rows.slice(0, 7).concat([{ name: "Other (" + rest.length + ")", planned: rest.reduce((s, r) => s + r.planned, 0), done: rest.reduce((s, r) => s + r.done, 0) }]); }
     const scale = Math.max(1, ...rows.map((r) => Math.max(r.planned, r.done)));
     wh.append(h("div", { class: "bar-title" }, "Where the money goes"),
       h("div", { class: "list" }, rows.map((r) => h("div", { class: "hrow" },

@@ -18,7 +18,7 @@ If someone already has budgets saved, the example is added to their list once. *
 - **Top bar:** the menu button (three lines), the open budget's name, and a yellow **Add** button.
 - **Menu (slide-out):**
   - **Budgets:** switch budgets, manage them, or open the example.
-  - **Tools:** Add item, Edit items, Share this budget, Import a budget.
+  - **Tools:** Add item, Edit items, Share this budget, Export PDF report, Import a budget.
   - **Backup:** save a budget to a file, or restore one from a file.
   - **Appearance:** Auto (follows the phone), Light or Dark, and **Colors…**.
 - **Sheets:** Add item, Share, Import and Manage budgets open as a panel that slides up from the bottom. Close it with the X, by tapping outside it, or with Escape.
@@ -66,6 +66,17 @@ Social sites keep the first preview they see, so test before you post: Facebook'
 1. Open the address in **Safari**.
 2. Tap **Share**, then **Add to Home Screen**.
 3. Open it from the new icon.
+
+## Export a PDF report
+
+**Menu → Export PDF report** makes a Letter-size PDF of the month you are viewing, with a section for each tab: **Overview** (the three gauges and the month summary), **Bills** (every bill and paycheck with its paid status, plus the weekly schedule), **Spending** and **Insights** (where the money goes and the six-month chart). A normal budget fits on four pages. A long one runs onto extra pages, numbered "Page n of N".
+
+- It always shows everything, whatever filters you have set on screen.
+- Step back to another month first to report on that month.
+- On an iPhone it opens the share sheet, so you can **Save to Files**, **Print** or AirDrop it. On a computer it downloads.
+- It is built on the device and works offline. Nothing is uploaded.
+- It prints on a white page in the colors you chose, even if your phone is in dark mode.
+- Characters the PDF fonts do not have, such as emoji, print as a question mark.
 
 ## Sharing a budget
 
